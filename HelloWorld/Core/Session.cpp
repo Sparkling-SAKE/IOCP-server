@@ -154,44 +154,14 @@ void Session::ProcessPackets()
         const char* bodyPtr = packetData.data() + HEADER_SIZE;
         const size_t bodySize = packetSize - HEADER_SIZE;
 
-        std::string_view body(bodyPtr, bodySize);
-
-        HandlePacket(header, body);
-    }
-}
-
-void Session::HandlePacket(const PacketHeader& header, std::string_view body)
-{
-    const auto pid = static_cast<PacketIds>(header.id);
-
-    switch (pid)
-    {
-    case PacketIds::C2S_ECHO:
-    {
-        std::string packet = BuildPacket(PacketIds::S2C_ECHO, body);
-        PostSend(packet.data(), static_cast<int32_t>(packet.size()));
-    }
-    break;
-
-    case PacketIds::C2S_CHAT:
-    {
-        // 일단 서버 콘솔에 찍어보기
-        std::cout << std::format("[CHAT] {} bytes: {}\n",
-            body.size(),
-            std::string(body));
-
-        // 나중에: 전체 유저에게 브로드캐스트
         if (_owner)
         {
             auto self = shared_from_this();
-            _owner->BroadcastChat(self, body);
-        }
-    }
-    break;
 
-    default:
-        std::cout << std::format("Unknown PacketId: {}\n", header.id);
-        break;
+            std::string body(bodyPtr, bodySize);
+
+            _owner->EnqueuePacket(self, header, body);
+        }
     }
 }
 

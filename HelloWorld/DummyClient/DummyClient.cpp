@@ -33,25 +33,30 @@ int main()
 
     std::cout << std::format("connected to server\n");
 
-    std::string msg = "Hello from client!\n";
-    std::string packet = BuildPacket(PacketIds::C2S_CHAT, msg);
-
-    send(s, packet.data(), static_cast<int>(packet.size()), 0);
-
-    char buf[1024]{};
-    int recvBytes = recv(s, buf, sizeof(buf), 0);
-
-    if (recvBytes >= static_cast<int>(sizeof(PacketHeader)))
+    while (true)
     {
-        PacketHeader header{};
-        std::memcpy(&header, buf, sizeof(header));
+        std::string msg = "Hello from client!\n";
+        std::string packet = BuildPacket(PacketIds::C2S_CHAT, msg);
 
-        std::string_view body(buf + sizeof(header),
-            recvBytes - static_cast<int>(sizeof(header)));
+        send(s, packet.data(), static_cast<int>(packet.size()), 0);
 
-        std::cout << std::format("recv PacketId={}, body={}\n",
-            header.id,
-            std::string(body));
+        char buf[1024]{};
+        int recvBytes = recv(s, buf, sizeof(buf), 0);
+
+        if (recvBytes >= static_cast<int>(sizeof(PacketHeader)))
+        {
+            PacketHeader header{};
+            std::memcpy(&header, buf, sizeof(header));
+
+            std::string_view body(buf + sizeof(header),
+                recvBytes - static_cast<int>(sizeof(header)));
+
+            std::cout << std::format("recv PacketId={}, body={}\n",
+                header.id,
+                std::string(body));
+        }
+
+        std::this_thread::sleep_for(std::chrono::seconds(2));
     }
 
     closesocket(s);

@@ -36,6 +36,9 @@ bool IocpServer::Start(const char* ip, uint16_t port, int workerCount)
     // accept 스레드 시작 (blocking accept)
     _acceptThread = std::jthread([this] { acceptLoop(); });
 
+    // 로직 스레드
+    _logicThread = std::jthread([this] { logicLoop(); });
+
     return true;
 }
 
@@ -55,6 +58,9 @@ void IocpServer::Stop()
 
     if (_acceptThread.joinable())
         _acceptThread.join();
+
+    if (_logicThread.joinable())
+        _logicThread.join();
 
     if (_listenSocket != INVALID_SOCKET)
     {
@@ -80,6 +86,16 @@ void IocpServer::OnSessionDisconnected(std::shared_ptr<Session> session)
         _sessions.erase(it);
         std::cout << std::format("Session removed. current session count = {}\n", _sessions.size());
     }
+}
+
+void IocpServer::EnqueuePacket(std::shared_ptr<Session> session, const PacketHeader& header, std::string_view body)
+{
+    PacketJob job{};
+    job.session = std::move(session);
+    job.header = header;
+    job.body.assign(body.begin(), body.end());
+
+    _jobQueue.Push(job);
 }
 
 void IocpServer::BroadcastChat(std::shared_ptr<Session> from, std::string_view msg)
@@ -160,6 +176,45 @@ void IocpServer::acceptLoop()
             session->Close();
             OnSessionDisconnected(session);
             continue;
+        }
+    }
+}
+
+void IocpServer::logicLoop()
+{
+    // thread_local int gLogicThreadId = 0;
+
+    PacketJob job{};
+    while (_running)
+    {
+        if (!_jobQueue.Pop(job))
+            break; // Stop() 호출 후 큐 비면 빠져나옴
+
+        // 패킷 디스패치
+        const auto pid = static_cast<PacketIds>(job.header.id);
+
+        switch (pid)
+        {
+        case PacketIds::C2S_ECHO:
+        {
+            std::string packet = BuildPacket(PacketIds::S2C_ECHO, job.body);
+            job.session->PostSend(packet.data(), static_cast<int>(packet.size()));
+        }
+        break;
+
+        case PacketIds::C2S_CHAT:
+        {
+            // 여기서 BroadcastChat 호출 (이제 로직 스레드에서만 돌게 됨)
+            BroadcastChat(job.session, job.body);
+        }
+        break;
+
+        default:
+        {
+            std::cout << std::format("Unknown PacketId in logicLoop: {}\n",
+                job.header.id);
+        }
+        break;
         }
     }
 }

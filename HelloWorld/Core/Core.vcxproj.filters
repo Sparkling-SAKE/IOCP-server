@@ -13,6 +13,9 @@
     <Filter Include="Util">
       <UniqueIdentifier>{5d08b1be-528f-496d-b1d9-b646ffe64457}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Job">
+      <UniqueIdentifier>{27131804-e160-481f-af2c-ca02996df20a}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="pch.cpp">
@@ -27,6 +30,9 @@
     <ClCompile Include="SocketUtils.cpp">
       <Filter>Util</Filter>
     </ClCompile>
+    <ClCompile Include="JobQueue.cpp">
+      <Filter>Job</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="IocpServer.h">
@@ -40,6 +46,9 @@
     </ClInclude>
     <ClInclude Include="SocketUtils.h">
       <Filter>Util</Filter>
+    </ClInclude>
+    <ClInclude Include="JobQueue.h">
+      <Filter>Job</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

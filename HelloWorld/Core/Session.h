@@ -25,7 +25,6 @@ public:
 
 private:
     void ProcessPackets();
-    void HandlePacket(const PacketHeader& header, std::string_view body);
 
     void NotifyDisconnected();
 

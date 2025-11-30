@@ -1,4 +1,5 @@
 #pragma once
+#include "JobQueue.h"
 
 class Session;
 
@@ -12,14 +13,15 @@ public:
     void Stop();
 
     void OnSessionDisconnected(std::shared_ptr<Session> session);
-
-public:
+    void EnqueuePacket(std::shared_ptr<Session> session, const PacketHeader& header, std::string_view body);
     void BroadcastChat(std::shared_ptr<Session> from, std::string_view msg);
 
 private:
     bool InitListenSocket(const char* ip, uint16_t port);
     void workerLoop();
     void acceptLoop();
+
+    void logicLoop();
 
 private:
     SOCKET _listenSocket = INVALID_SOCKET;
@@ -32,4 +34,7 @@ private:
 
     std::mutex _sessionMutex{};
     std::unordered_set<std::shared_ptr<Session>> _sessions{};
+
+    JobQueue _jobQueue{};
+    std::jthread _logicThread{};
 };
