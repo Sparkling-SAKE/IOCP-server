@@ -6,6 +6,12 @@ public:
     static bool InitWinsock();
     static void CleanupWinsock();
 
+    static LPFN_ACCEPTEX AcceptEx;
+    static LPFN_GETACCEPTEXSOCKADDRS GetAcceptExSockaddrs;
+
+    static bool InitAcceptEx(SOCKET listenSocket);
+
+
     static bool SetNoDelay(SOCKET socket, bool enable);
     static bool SetLinger(SOCKET socket, bool enable, uint16_t seconds);
 };

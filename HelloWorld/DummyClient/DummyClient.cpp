@@ -35,7 +35,8 @@ int main()
 
     while (true)
     {
-        std::string msg = "Hello from client!\n";
+        std::string msg{};// = "Hello from client!\n";
+        std::getline(std::cin, msg);
         std::string packet = BuildPacket(PacketIds::C2S_CHAT, msg);
 
         send(s, packet.data(), static_cast<int>(packet.size()), 0);
@@ -55,8 +56,6 @@ int main()
                 header.id,
                 std::string(body));
         }
-
-        std::this_thread::sleep_for(std::chrono::seconds(2));
     }
 
     closesocket(s);

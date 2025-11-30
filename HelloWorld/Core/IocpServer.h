@@ -1,5 +1,6 @@
 #pragma once
 #include "JobQueue.h"
+#include "OverlappedContext.h"
 
 class Session;
 
@@ -18,8 +19,11 @@ public:
 
 private:
     bool InitListenSocket(const char* ip, uint16_t port);
+    void PostAccept();
+    void PostInitialAccepts(int count);
+    void HandleAcceptCompleted(OverlappedContext* ctx);
+
     void workerLoop();
-    void acceptLoop();
 
     void logicLoop();
 
@@ -30,11 +34,12 @@ private:
     std::atomic<bool> _running = false;
 
     std::vector<std::jthread> _workers{};
-    std::jthread _acceptThread{};
 
     std::mutex _sessionMutex{};
     std::unordered_set<std::shared_ptr<Session>> _sessions{};
 
     JobQueue _jobQueue{};
     std::jthread _logicThread{};
+
+    static constexpr int32_t ACCEPT_COUNT = 8;
 };

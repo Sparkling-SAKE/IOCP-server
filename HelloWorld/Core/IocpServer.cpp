@@ -25,16 +25,18 @@ bool IocpServer::Start(const char* ip, uint16_t port, int workerCount)
     if (_iocp == nullptr)
         return false;
 
+    if (CreateIoCompletionPort(reinterpret_cast<HANDLE>(_listenSocket), _iocp, 0, 0) == nullptr)
+        return false;
+
     _running = true;
+
+    PostInitialAccepts(ACCEPT_COUNT);
 
     // 워커 스레드 시작
     for (int i = 0; i < workerCount; ++i)
     {
         _workers.emplace_back([this] { workerLoop(); });
     }
-
-    // accept 스레드 시작 (blocking accept)
-    _acceptThread = std::jthread([this] { acceptLoop(); });
 
     // 로직 스레드
     _logicThread = std::jthread([this] { logicLoop(); });
@@ -47,7 +49,12 @@ void IocpServer::Stop()
     if (!_running.exchange(false))
         return;
 
-    // 워커들 깨우기 위해 dummy completion post 해도 됨 (여기선 생략 가능)
+    _jobQueue.Stop();
+
+    for (size_t i = 0; i < _workers.size(); ++i)
+    {
+        PostQueuedCompletionStatus(_iocp, 0, 0, nullptr);
+    }
 
     for (auto& th : _workers)
     {
@@ -55,9 +62,6 @@ void IocpServer::Stop()
             th.join();
     }
     _workers.clear();
-
-    if (_acceptThread.joinable())
-        _acceptThread.join();
 
     if (_logicThread.joinable())
         _logicThread.join();
@@ -95,7 +99,7 @@ void IocpServer::EnqueuePacket(std::shared_ptr<Session> session, const PacketHea
     job.header = header;
     job.body.assign(body.begin(), body.end());
 
-    _jobQueue.Push(job);
+    _jobQueue.Push(std::move(job));
 }
 
 void IocpServer::BroadcastChat(std::shared_ptr<Session> from, std::string_view msg)
@@ -110,6 +114,8 @@ void IocpServer::BroadcastChat(std::shared_ptr<Session> from, std::string_view m
         // if (session == from) continue;
 
         session->PostSend(packet.data(), static_cast<int>(packet.size()));
+        std::cout << "packet data : " << packet.data() + 4 << std::endl;
+        std::cout << "packet size : " << packet.size() << std::endl;
     }
 }
 
@@ -118,6 +124,12 @@ bool IocpServer::InitListenSocket(const char* ip, uint16_t port)
     _listenSocket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
     if (_listenSocket == INVALID_SOCKET)
         return false;
+
+    if (!SocketUtils::InitAcceptEx(_listenSocket))
+    {
+        std::cout << "InitAcceptEx failed\n";
+        return false;
+    }
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
@@ -133,51 +145,121 @@ bool IocpServer::InitListenSocket(const char* ip, uint16_t port)
     return true;
 }
 
-void IocpServer::acceptLoop()
+void IocpServer::PostAccept()
 {
-    while (_running)
+    auto* ctx = new OverlappedContext{};
+    ctx->Reset();
+    ctx->op = IoOperation::Accept;
+
+    ctx->acceptSocket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP,
+        nullptr, 0, WSA_FLAG_OVERLAPPED);
+    if (ctx->acceptSocket == INVALID_SOCKET)
     {
-        sockaddr_in clientAddr{};
-        int addrLen = sizeof(clientAddr);
+        std::cout << "PostAccept: WSASocket failed: "
+            << WSAGetLastError() << "\n";
+        delete ctx;
+        return;
+    }
 
-        SOCKET clientSock = accept(_listenSocket, reinterpret_cast<sockaddr*>(&clientAddr), &addrLen);
-        if (clientSock == INVALID_SOCKET)
+    DWORD bytesReceived = 0;
+
+    BOOL ok = SocketUtils::AcceptEx(
+        _listenSocket,
+        ctx->acceptSocket,
+        ctx->addrBuffer.data(),
+        0,  // 초기에 payload는 안 받는다 (순수 accept 전용)
+        sizeof(sockaddr_in) + 16,
+        sizeof(sockaddr_in) + 16,
+        &bytesReceived,
+        &ctx->overlapped);
+
+    if (!ok)
+    {
+        int err = WSAGetLastError();
+        if (err != WSA_IO_PENDING)
         {
-            int err = WSAGetLastError();
-            if (!_running)
-                break;
-            std::cout << std::format("accept FAILED: {}\n", err);
-            continue;
-        }
-
-        std::cout << std::format("accept OK: new client\n");
-
-        // shared_ptr 세션 생성
-        auto session = std::make_shared<Session>(clientSock, _iocp, this);
-
-        // 먼저 컨테이너에 등록
-        {
-            std::scoped_lock lock(_sessionMutex);
-            _sessions.insert(session);
-            std::cout << std::format("Session added. current session count = {}\n", _sessions.size());
-        }
-
-        if (!session->Initialize())
-        {
-            std::cout << std::format("Session Initialize FAILED\n");
-            session->Close();
-            OnSessionDisconnected(session);
-            continue;
-        }
-
-        if (!session->PostRecv())
-        {
-            std::cout << std::format("Session PostRecv FAILED\n");
-            session->Close();
-            OnSessionDisconnected(session);
-            continue;
+            std::cout << "PostAccept: AcceptEx failed: " << err << "\n";
+            closesocket(ctx->acceptSocket);
+            delete ctx;
+            return;
         }
     }
+}
+
+void IocpServer::PostInitialAccepts(int count)
+{
+    for (int i = 0; i < count; ++i)
+        PostAccept();
+}
+
+void IocpServer::HandleAcceptCompleted(OverlappedContext* ctx)
+{
+    // 새 소켓에 대해 SO_UPDATE_ACCEPT_CONTEXT 설정
+    if (setsockopt(ctx->acceptSocket, SOL_SOCKET, SO_UPDATE_ACCEPT_CONTEXT, reinterpret_cast<const char*>(&_listenSocket), sizeof(_listenSocket)) == SOCKET_ERROR)
+    {
+        std::cout << "HandleAcceptCompleted: SO_UPDATE_ACCEPT_CONTEXT failed: "
+            << WSAGetLastError() << "\n";
+        closesocket(ctx->acceptSocket);
+        delete ctx;
+
+        // 다음 Accept를 다시 걸어준다
+        PostAccept();
+        return;
+    }
+
+    // Session 생성
+    auto session = std::make_shared<Session>(ctx->acceptSocket, _iocp, this);
+
+    if (session->Initialize() == false)
+    {
+        std::cout << "Session Initialize Fail!!" << std::endl;
+        closesocket(ctx->acceptSocket);
+        delete ctx;
+
+        // 다음 Accept를 다시 걸어준다
+        PostAccept();
+        return;
+    }
+
+    {
+        std::scoped_lock lock(_sessionMutex);
+        _sessions.insert(session);
+        std::cout << "Session added. count=" << _sessions.size() << "\n";
+    }
+
+    // 소켓을 IOCP에 등록 (key = Session*)
+    HANDLE h = CreateIoCompletionPort(
+        reinterpret_cast<HANDLE>(ctx->acceptSocket),
+        _iocp,
+        reinterpret_cast<ULONG_PTR>(session.get()),
+        0);
+
+    if (h == nullptr)
+    {
+        std::cout << "CreateIoCompletionPort for client failed: "
+            << GetLastError() << "\n";
+        session->Close();
+        OnSessionDisconnected(session);
+        delete ctx;
+        PostAccept();
+        return;
+    }
+
+    // 첫 Recv
+    if (!session->PostRecv())
+    {
+        session->Close();
+        OnSessionDisconnected(session);
+        delete ctx;
+        PostAccept();
+        return;
+    }
+
+    // Accept 컨텍스트는 여기서 사용 끝
+    delete ctx;
+
+    // 다음 클라를 위해 또 AcceptEx를 걸어둔다
+    PostAccept();
 }
 
 void IocpServer::logicLoop()
@@ -205,6 +287,7 @@ void IocpServer::logicLoop()
         case PacketIds::C2S_CHAT:
         {
             // 여기서 BroadcastChat 호출 (이제 로직 스레드에서만 돌게 됨)
+            std::cout << "BroadCast!!!!" << std::endl;
             BroadcastChat(job.session, job.body);
         }
         break;
@@ -237,26 +320,37 @@ void IocpServer::workerLoop()
         if (!_running)
             break;
 
-        if (!ok || ov == nullptr || key == 0)
+        if (!ok || ov == nullptr)
         {
             // 에러 or 종료. 진짜 서버라면 여기서 로깅/정리 필요.
-            continue;
+             if (!_running)
+                break;
+             std::cout << "GQCS error: " << GetLastError() << "\n";
+             continue;
         }
 
-        auto* session = reinterpret_cast<Session*>(key);
         auto* ctx = reinterpret_cast<OverlappedContext*>(ov);
 
         switch (ctx->op)
         {
-        case IoOperation::Recv:
-            session->OnRecvCompleted(bytes);
-            break;
-        case IoOperation::Send:
-            session->OnSendCompleted(bytes);
-            break;
         case IoOperation::Accept:
-            // 지금은 안 씀 (나중에 AcceptEx에서 사용)
-            break;
+        {
+            HandleAcceptCompleted(ctx);
         }
+        break;
+        case IoOperation::Recv:
+        {
+            auto* session = reinterpret_cast<Session*>(key);
+            session->OnRecvCompleted(bytes);
+        }
+        break;
+        case IoOperation::Send:
+        {
+            auto* session = reinterpret_cast<Session*>(key);
+            session->OnSendCompleted(bytes);
+        }
+        break;
+        }
+
     }
 }

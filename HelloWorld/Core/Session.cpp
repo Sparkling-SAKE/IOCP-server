@@ -16,14 +16,7 @@ Session::~Session()
 
 bool Session::Initialize()
 {
-    // IOCP俊 技记 家南 殿废
-    HANDLE h = CreateIoCompletionPort(
-        reinterpret_cast<HANDLE>(_sock),
-        _iocp,
-        reinterpret_cast<ULONG_PTR>(this),
-        0);
-
-    return (h == _iocp);
+    return true;
 }
 
 void Session::Close()
@@ -41,16 +34,15 @@ bool Session::PostRecv()
     _recvCtx.op = IoOperation::Recv;
     _recvCtx.owner = this;
 
-    WSABUF buf{};
-    buf.buf = _recvBuffer.data();
-    buf.len = static_cast<ULONG>(_recvBuffer.size());
+    _recvCtx.wsaBuf.buf = _recvBuffer.data();
+    _recvCtx.wsaBuf.len = static_cast<ULONG>(_recvBuffer.size());
 
     DWORD flags = 0;
     DWORD bytes = 0;
 
     int result = WSARecv(
         _sock,
-        &buf,
+        &_recvCtx.wsaBuf,
         1,
         &bytes,
         &flags,
@@ -76,15 +68,14 @@ bool Session::PostSend(const char* data, int len)
     _sendCtx.op = IoOperation::Send;
     _sendCtx.owner = this;
 
-    WSABUF buf{};
-    buf.buf = const_cast<char*>(data);
-    buf.len = len;
+    _sendCtx.wsaBuf.buf = const_cast<char*>(data);
+    _sendCtx.wsaBuf.len = static_cast<ULONG>(len);
 
     DWORD bytes = 0;
 
     int result = WSASend(
         _sock,
-        &buf,
+        &_recvCtx.wsaBuf,
         1,
         &bytes,
         0,
