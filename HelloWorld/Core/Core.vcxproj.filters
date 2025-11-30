@@ -1,0 +1,51 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="Iocp">
+      <UniqueIdentifier>{cd3fc7b4-7bf2-42a6-9131-fd4ce899c362}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="pch">
+      <UniqueIdentifier>{38a6d6a2-a98a-4d9c-b85b-7f8eb612ea6a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Net">
+      <UniqueIdentifier>{80afe2c0-61bb-46ac-a483-eb6e716a30f1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Util">
+      <UniqueIdentifier>{5d08b1be-528f-496d-b1d9-b646ffe64457}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="pch.cpp">
+      <Filter>pch</Filter>
+    </ClCompile>
+    <ClCompile Include="IocpServer.cpp">
+      <Filter>Iocp</Filter>
+    </ClCompile>
+    <ClCompile Include="Session.cpp">
+      <Filter>Net</Filter>
+    </ClCompile>
+    <ClCompile Include="Socket.cpp">
+      <Filter>Net</Filter>
+    </ClCompile>
+    <ClCompile Include="SocketUtils.cpp">
+      <Filter>Util</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="IocpServer.h">
+      <Filter>Iocp</Filter>
+    </ClInclude>
+    <ClInclude Include="OverlappedContext.h">
+      <Filter>Net</Filter>
+    </ClInclude>
+    <ClInclude Include="Session.h">
+      <Filter>Net</Filter>
+    </ClInclude>
+    <ClInclude Include="Socket.h">
+      <Filter>Net</Filter>
+    </ClInclude>
+    <ClInclude Include="SocketUtils.h">
+      <Filter>Util</Filter>
+    </ClInclude>
+  </ItemGroup>
+</Project>
