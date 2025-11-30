@@ -9,3 +9,12 @@ struct PacketHeader
     PacketLen length; // 헤더 포함 전체 길이
     PacketId  id;     // 나중에 C2S_MOVE, S2C_CHAT 같은 타입 구분용
 };
+
+enum class PacketIds : PacketId
+{
+    C2S_ECHO = 1,
+    C2S_CHAT = 2,
+
+    S2C_ECHO = 1001,
+    S2C_CHAT = 1002,
+};

@@ -5,7 +5,8 @@
 
 int main()
 {
-    std::this_thread::sleep_for(std::chrono::seconds(3));
+    std::this_thread::sleep_for(std::chrono::seconds(1));
+
     WSADATA wsaData{};
     int result = WSAStartup(MAKEWORD(2, 2), &wsaData);
     if (result != 0)
@@ -32,25 +33,25 @@ int main()
 
     std::cout << std::format("connected to server\n");
 
-    std::string msg = "hello IOCP\n";
-    std::string packet = BuildEchoPacket(msg);
+    std::string msg = "Hello from client!\n";
+    std::string packet = BuildPacket(PacketIds::C2S_CHAT, msg);
 
-    int sent = send(s, packet.data(), static_cast<int>(packet.size()), 0);
-    std::cout << std::format("sent {} bytes\n", sent);
+    send(s, packet.data(), static_cast<int>(packet.size()), 0);
 
     char buf[1024]{};
     int recvBytes = recv(s, buf, sizeof(buf), 0);
-    std::cout << std::format("recv {} bytes\n", recvBytes);
 
-    // 헤더 까보고 body 출력
-    if (recvBytes >= sizeof(PacketHeader))
+    if (recvBytes >= static_cast<int>(sizeof(PacketHeader)))
     {
         PacketHeader header{};
         std::memcpy(&header, buf, sizeof(header));
-        std::string body(buf + sizeof(header), buf + recvBytes);
 
-        std::cout << std::format("echo header.length={}, id={}\n", header.length, header.id);
-        std::cout << std::format("echo body: {}\n", body);
+        std::string_view body(buf + sizeof(header),
+            recvBytes - static_cast<int>(sizeof(header)));
+
+        std::cout << std::format("recv PacketId={}, body={}\n",
+            header.id,
+            std::string(body));
     }
 
     closesocket(s);

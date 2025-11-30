@@ -24,9 +24,6 @@
     <ClCompile Include="Session.cpp">
       <Filter>Net</Filter>
     </ClCompile>
-    <ClCompile Include="Socket.cpp">
-      <Filter>Net</Filter>
-    </ClCompile>
     <ClCompile Include="SocketUtils.cpp">
       <Filter>Util</Filter>
     </ClCompile>
@@ -39,9 +36,6 @@
       <Filter>Net</Filter>
     </ClInclude>
     <ClInclude Include="Session.h">
-      <Filter>Net</Filter>
-    </ClInclude>
-    <ClInclude Include="Socket.h">
       <Filter>Net</Filter>
     </ClInclude>
     <ClInclude Include="SocketUtils.h">

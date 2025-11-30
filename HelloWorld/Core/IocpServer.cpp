@@ -2,6 +2,7 @@
 #include "IocpServer.h"
 #include "Session.h"
 #include "SocketUtils.h"
+#include "PacketUtils.h"
 
 IocpServer::IocpServer()
 {
@@ -70,6 +71,32 @@ void IocpServer::Stop()
     SocketUtils::CleanupWinsock();
 }
 
+void IocpServer::OnSessionDisconnected(std::shared_ptr<Session> session)
+{
+    std::scoped_lock lock(_sessionMutex);
+    auto it = _sessions.find(session);
+    if (it != _sessions.end())
+    {
+        _sessions.erase(it);
+        std::cout << std::format("Session removed. current session count = {}\n", _sessions.size());
+    }
+}
+
+void IocpServer::BroadcastChat(std::shared_ptr<Session> from, std::string_view msg)
+{
+    std::string packet = BuildPacket(PacketIds::S2C_CHAT, msg);
+
+    std::scoped_lock lock(_sessionMutex);
+
+    for (auto& session : _sessions)
+    {
+        // 필요하면 보내는 본인은 스킵할 수도 있음
+        // if (session == from) continue;
+
+        session->PostSend(packet.data(), static_cast<int>(packet.size()));
+    }
+}
+
 bool IocpServer::InitListenSocket(const char* ip, uint16_t port)
 {
     _listenSocket = WSASocket(AF_INET, SOCK_STREAM, IPPROTO_TCP, nullptr, 0, WSA_FLAG_OVERLAPPED);
@@ -103,21 +130,35 @@ void IocpServer::acceptLoop()
             int err = WSAGetLastError();
             if (!_running)
                 break;
+            std::cout << std::format("accept FAILED: {}\n", err);
             continue;
         }
 
-        // 새 세션 생성
-        auto* session = new Session(clientSock, _iocp);
+        std::cout << std::format("accept OK: new client\n");
+
+        // shared_ptr 세션 생성
+        auto session = std::make_shared<Session>(clientSock, _iocp, this);
+
+        // 먼저 컨테이너에 등록
+        {
+            std::scoped_lock lock(_sessionMutex);
+            _sessions.insert(session);
+            std::cout << std::format("Session added. current session count = {}\n", _sessions.size());
+        }
+
         if (!session->Initialize())
         {
-            delete session;
+            std::cout << std::format("Session Initialize FAILED\n");
+            session->Close();
+            OnSessionDisconnected(session);
             continue;
         }
 
-        // 첫 recv 걸기
         if (!session->PostRecv())
         {
-            delete session;
+            std::cout << std::format("Session PostRecv FAILED\n");
+            session->Close();
+            OnSessionDisconnected(session);
             continue;
         }
     }

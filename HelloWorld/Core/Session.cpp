@@ -1,9 +1,11 @@
 #include "pch.h"
 #include "Session.h"
-#include "PacketUtils.h"
+#include "IocpServer.h"
 
-Session::Session(SOCKET sock, HANDLE iocp)
-    : _sock(sock), _iocp(iocp)
+Session::Session(SOCKET sock, HANDLE iocp, IocpServer* owner)
+    : _sock(sock)
+    , _iocp(iocp)
+    , _owner(owner)
 {
 }
 
@@ -110,6 +112,7 @@ void Session::OnRecvCompleted(DWORD bytesTransferred)
         // 클라이언트 종료
         std::cout << "Client disconnected!!" << std::endl;
         Close();
+        NotifyDisconnected();
         return;
     }
 
@@ -131,37 +134,71 @@ void Session::OnSendCompleted(DWORD bytesTransferred)
 
 void Session::ProcessPackets()
 {
-    // 패킷 헤더 크기
     constexpr size_t HEADER_SIZE = sizeof(PacketHeader);
 
-    // 누적 버퍼에 최소 헤더만큼은 있어야 뭔가 할 수 있음
     while (true)
     {
         if (_recvAccum.size() < HEADER_SIZE)
             return;
 
-        // 헤더 읽기
         PacketHeader header{};
         std::memcpy(&header, _recvAccum.data(), HEADER_SIZE);
 
-        // 전체 패킷 길이가 누적 버퍼보다 크면 → 아직 덜 온 것
         if (_recvAccum.size() < header.length)
             return;
 
-        // 패킷 전체 범위 [0, header.length)
-        std::string packetData = _recvAccum.substr(0, header.length);
+        const size_t packetSize = header.length;
+        std::string packetData = _recvAccum.substr(0, packetSize);
+        _recvAccum.erase(0, packetSize);
 
-        // 누적 버퍼에서 소비
-        _recvAccum.erase(0, header.length);
+        const char* bodyPtr = packetData.data() + HEADER_SIZE;
+        const size_t bodySize = packetSize - HEADER_SIZE;
 
-        // 여기서 패킷 처리
-        const char* body = packetData.data() + HEADER_SIZE;
-        size_t bodySize = header.length - HEADER_SIZE;
+        std::string_view body(bodyPtr, bodySize);
 
-        // 일단은 "패킷 단위 에코"로 구현
-        PostSend(packetData.data(), static_cast<int>(packetData.size()));
+        HandlePacket(header, body);
+    }
+}
 
-        // 나중에는 header.id 보고 분기해서:
-        // switch (header.id) { case C2S_CHAT: ..., case C2S_MOVE: ... }
+void Session::HandlePacket(const PacketHeader& header, std::string_view body)
+{
+    const auto pid = static_cast<PacketIds>(header.id);
+
+    switch (pid)
+    {
+    case PacketIds::C2S_ECHO:
+    {
+        std::string packet = BuildPacket(PacketIds::S2C_ECHO, body);
+        PostSend(packet.data(), static_cast<int32_t>(packet.size()));
+    }
+    break;
+
+    case PacketIds::C2S_CHAT:
+    {
+        // 일단 서버 콘솔에 찍어보기
+        std::cout << std::format("[CHAT] {} bytes: {}\n",
+            body.size(),
+            std::string(body));
+
+        // 나중에: 전체 유저에게 브로드캐스트
+        if (_owner)
+        {
+            auto self = shared_from_this();
+            _owner->BroadcastChat(self, body);
+        }
+    }
+    break;
+
+    default:
+        std::cout << std::format("Unknown PacketId: {}\n", header.id);
+        break;
+    }
+}
+
+void Session::NotifyDisconnected()
+{
+    if (_owner)
+    {
+        _owner->OnSessionDisconnected(shared_from_this());
     }
 }
